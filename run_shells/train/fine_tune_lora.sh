@@ -14,16 +14,23 @@ base_model_dir="/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/pretrain_models
 data_path="/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/ft_52k/alpaca_data_cleaned.json"
 
 output_dir="/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/ft_52k/llama-7b-hf_fine_tune_out"
+your_random_port=11235
 
-CUDA_VISIBLE_DEVICES=6 \
-python finetune.py \
+
+
+#-------------------
+#多gpu训练
+#-------------------
+CUDA_VISIBLE_DEVICES=6,7 \
+torchrun --nproc_per_node=2 --master_port=${your_random_port} finetune.py \
     --base_model ${base_model_dir} \
     --data_path ${data_path} \
     --output_dir ${output_dir}
 
 
-#CUDA_VISIBLE_DEVICES=6 \
-#python finetune.py \
+
+#CUDA_VISIBLE_DEVICES=6,7 \
+#torchrun --nproc_per_node=2 --master_port=${your_random_port} finetune.py \
 #    --base_model ${base_model_dir} \
 #    --data_path ${data_path} \
 #    --output_dir ${output_dir} \
@@ -39,3 +46,11 @@ python finetune.py \
 #    --lora_target_modules '[q_proj,v_proj]' \
 #    --train_on_inputs \
 #    --group_by_length
+#
+
+
+#CUDA_VISIBLE_DEVICES=6 \
+#python finetune.py \
+#    --base_model ${base_model_dir} \
+#    --data_path ${data_path} \
+#    --output_dir ${output_dir}
