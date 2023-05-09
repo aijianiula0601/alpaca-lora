@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import List
+import setproctitle
 
 import fire
 import torch
@@ -10,7 +11,7 @@ from datasets import load_dataset
 import transformers
 
 assert (
-    "LlamaTokenizer" in transformers._import_structure["models.llama"]
+        "LlamaTokenizer" in transformers._import_structure["models.llama"]
 ), "LLaMA is now in HuggingFace's main branch.\nPlease reinstall it: pip uninstall transformers && pip install git+https://github.com/huggingface/transformers.git"
 from transformers import LlamaForCausalLM, LlamaTokenizer
 from peft import (
@@ -23,30 +24,31 @@ from peft import (
 
 
 def train(
-    # model/data params
-    base_model: str = "",  # the only required argument
-    data_path: str = "./alpaca_data_cleaned.json",
-    output_dir: str = "./lora-alpaca",
-    # training hyperparams
-    batch_size: int = 128,
-    micro_batch_size: int = 4,
-    num_epochs: int = 3,
-    learning_rate: float = 3e-4,
-    cutoff_len: int = 256,
-    val_set_size: int = 2000,
-    # lora hyperparams
-    lora_r: int = 8,
-    lora_alpha: int = 16,
-    lora_dropout: float = 0.05,
-    lora_target_modules: List[str] = [
-        "q_proj",
-        "v_proj",
-    ],
-    # llm hyperparams
-    train_on_inputs: bool = True,  # if False, masks out inputs in loss
-    group_by_length: bool = False,  # faster, but produces an odd training loss curve,
-    resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
+        # model/data params
+        base_model: str = "",  # the only required argument
+        data_path: str = "./alpaca_data_cleaned.json",
+        output_dir: str = "./lora-alpaca",
+        # training hyperparams
+        batch_size: int = 128,
+        micro_batch_size: int = 4,
+        num_epochs: int = 3,
+        learning_rate: float = 3e-4,
+        cutoff_len: int = 256,
+        val_set_size: int = 2000,
+        # lora hyperparams
+        lora_r: int = 8,
+        lora_alpha: int = 16,
+        lora_dropout: float = 0.05,
+        lora_target_modules: List[str] = [
+            "q_proj",
+            "v_proj",
+        ],
+        # llm hyperparams
+        train_on_inputs: bool = True,  # if False, masks out inputs in loss
+        group_by_length: bool = False,  # faster, but produces an odd training loss curve,
+        resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
 ):
+    setproctitle.setproctitle("fine_tune_lora")
     print(
         f"Training Alpaca-LoRA model with params:\n"
         f"base_model: {base_model}\n"
@@ -100,9 +102,9 @@ def train(
             return_tensors=None,
         )
         if (
-            result["input_ids"][-1] != tokenizer.eos_token_id
-            and len(result["input_ids"]) < cutoff_len
-            and add_eos_token
+                result["input_ids"][-1] != tokenizer.eos_token_id
+                and len(result["input_ids"]) < cutoff_len
+                and add_eos_token
         ):
             result["input_ids"].append(tokenizer.eos_token_id)
             result["attention_mask"].append(1)
@@ -120,10 +122,10 @@ def train(
             user_prompt_len = len(tokenized_user_prompt["input_ids"])
 
             tokenized_full_prompt["labels"] = [
-                -100
-            ] * user_prompt_len + tokenized_full_prompt["labels"][
-                user_prompt_len:
-            ]  # could be sped up, probably
+                                                  -100
+                                              ] * user_prompt_len + tokenized_full_prompt["labels"][
+                                                                    user_prompt_len:
+                                                                    ]  # could be sped up, probably
         return tokenized_full_prompt
 
     model = prepare_model_for_int8_training(model)

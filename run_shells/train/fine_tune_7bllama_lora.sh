@@ -13,7 +13,7 @@ cd ../../
 base_model_dir="/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/pretrain_models/llama/new_llama_7b"
 data_path="/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/ft_52k/alpaca_data_cleaned.json"
 
-output_dir="/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/ft_52k/llama-7b-hf_fine_tune_out"
+output_dir="/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/ft_52k/llama-7b-hf_fine_tune_out_v1"
 your_random_port=11235
 
 
@@ -21,7 +21,7 @@ your_random_port=11235
 #-------------------
 #多gpu训练
 #-------------------
-CUDA_VISIBLE_DEVICES=6,7 \
+CUDA_VISIBLE_DEVICES=4,5,6,7 \
 torchrun --nproc_per_node=2 --master_port=${your_random_port} finetune.py \
     --base_model ${base_model_dir} \
     --data_path ${data_path} \
