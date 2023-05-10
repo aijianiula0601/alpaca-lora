@@ -17,8 +17,7 @@ your_random_port=11235
 #-------------------
 #多gpu训练
 #-------------------
-CUDA_VISIBLE_DEVICES=4,5,6,7 \
-  torchrun --nproc_per_node=4 --master_port=${your_random_port} test_models/mask_instruct/finetune_mask_instruct.py \
+  torchrun --nproc_per_node=8 --master_port=${your_random_port} test_models/mask_instruct/finetune_mask_instruct.py \
   --base_model 'decapoda-research/llama-7b-hf' \
   --data_path ${data_path} \
   --output_dir ${output_dir} \
