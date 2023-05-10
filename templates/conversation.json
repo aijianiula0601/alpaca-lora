@@ -1,0 +1,6 @@
+{
+  "description": "Template used by conversation",
+  "prompt_background": "{background}\n",
+  "prompt_background_qas": "{background}\n{qas}",
+  "response_split": "### "
+}

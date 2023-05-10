@@ -7,7 +7,7 @@ def sota_prompt(human_name, bot_name, background):
 
 
 def gpt4_prompt(human_name, bot_name, background):
-    return f"Below is an chat between Instruction and Response.\n\n"
+    return f"Below is an chat between {human_name} and {bot_name}.\n\n"
 
 
 def persona_chat_prompt(human_name, bot_name, background):

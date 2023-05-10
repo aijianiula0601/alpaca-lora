@@ -16,8 +16,10 @@ print(f"cleaned:{len(cleaned_data)},gpt4:{len(gpt4_data)}")
 all_data = cleaned_data + gpt4_data
 
 save_f = "/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/alpaca_cleand_and_gpt4.json"
+save_debug_f = "/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/debug.json"
 
 json.dump(all_data, fp=open(save_f, 'w'))
+json.dump(all_data[:50], fp=open(save_debug_f, 'w'))
 
 print(f"save to:{save_f}")
 

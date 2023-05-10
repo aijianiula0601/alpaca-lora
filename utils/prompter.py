@@ -26,10 +26,10 @@ class Prompter(object):
             )
 
     def generate_prompt(
-        self,
-        instruction: str,
-        input: Union[None, str] = None,
-        label: Union[None, str] = None,
+            self,
+            instruction: str,
+            input: Union[None, str] = None,
+            label: Union[None, str] = None,
     ) -> str:
         # returns the full prompt from instruction and optional input
         # if a label (=response, =output) is provided, it's also appended.
@@ -40,6 +40,28 @@ class Prompter(object):
         else:
             res = self.template["prompt_no_input"].format(
                 instruction=instruction
+            )
+        if label:
+            res = f"{res}{label}"
+        if self._verbose:
+            print(res)
+        return res
+
+    def generate_conversation_prompt(
+            self,
+            background: str,
+            qas: Union[None, str] = None,
+            label: Union[None, str] = None,
+    ) -> str:
+        # returns the full prompt from instruction and optional input
+        # if a label (=response, =output) is provided, it's also appended.
+        if qas:
+            res = self.template["prompt_background_qas"].format(
+                background=background, qas=qas
+            )
+        else:
+            res = self.template["prompt_background"].format(
+                background=background
             )
         if label:
             res = f"{res}{label}"

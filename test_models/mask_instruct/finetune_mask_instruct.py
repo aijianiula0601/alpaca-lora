@@ -4,6 +4,10 @@ from typing import List
 
 import fire
 import torch
+
+pdj = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(pdj)
+
 import transformers
 from datasets import load_dataset
 
@@ -50,12 +54,12 @@ def train(
         add_eos_token: bool = False,
         group_by_length: bool = False,  # faster, but produces an odd training loss curve
         # wandb params
-        wandb_project: str = "",
+        wandb_project: str = "conversation_mask_instruct",
         wandb_run_name: str = "",
         wandb_watch: str = "",  # options: false | gradients | all
         wandb_log_model: str = "",  # options: false | true
         resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
-        prompt_template_name: str = "alpaca",  # The prompt template to use, will default to alpaca.
+        prompt_template_name: str = "conversation",  # The prompt template to use, will default to alpaca.
 ):
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         print(
@@ -146,29 +150,20 @@ def train(
         return result
 
     def generate_and_tokenize_prompt(data_point):
-        full_prompt = prompter.generate_prompt(
-            data_point["instruction"],
-            data_point["input"],
-            data_point["output"],
-        )
-        tokenized_full_prompt = tokenize(full_prompt)
-        if not train_on_inputs:
-            user_prompt = prompter.generate_prompt(
-                data_point["instruction"], data_point["input"]
-            )
-            tokenized_user_prompt = tokenize(
-                user_prompt, add_eos_token=add_eos_token
-            )
-            user_prompt_len = len(tokenized_user_prompt["input_ids"])
+        full_prompt = prompter.generate_conversation_prompt(data_point["background"], data_point["qas"])
+        tokenized_full_prompt = tokenize(full_prompt, add_eos_token=True)
 
-            if add_eos_token:
-                user_prompt_len -= 1
+        # mask background
+        background_prompt = prompter.generate_conversation_prompt(data_point["background"])
+        tokenized_user_prompt = tokenize(background_prompt, add_eos_token=add_eos_token)
+        background_prompt_len = len(tokenized_user_prompt["input_ids"])
 
-            tokenized_full_prompt["labels"] = [
-                                                  -100
-                                              ] * user_prompt_len + tokenized_full_prompt["labels"][
-                                                                    user_prompt_len:
-                                                                    ]  # could be sped up, probably
+        if add_eos_token:
+            background_prompt_len -= 1
+
+        tokenized_full_prompt["labels"] = [-100] * background_prompt_len + tokenized_full_prompt["labels"][
+                                                                           background_prompt_len:
+                                                                           ]  # could be sped up, probably
         return tokenized_full_prompt
 
     model = prepare_model_for_int8_training(model)
