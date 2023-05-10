@@ -38,15 +38,13 @@ tokenizer = LlamaTokenizer.from_pretrained(base_model)
 def _tokenize_string(text):
     tokenized = tokenizer(
         text,
-        return_tensors="pt",
-        padding="longest",
-        max_length=tokenizer.model_max_length,
         truncation=True,
+        max_length=cutoff_len,
+        padding=False,
+        return_tensors=None,
     )
-    print("tokenized:", tokenized)
-    tokenized_ids = tokenized.input_ids[0]
-    tokenized_ids_len = tokenized.input_ids.ne(tokenizer.pad_token_id).sum().item()
-    return tokenized_ids, tokenized_ids_len
+    tokenized_ids = tokenized['input_ids']
+    return tokenized_ids, len(tokenized_ids)
 
 
 def _preprocess_example(conversation_dic):
@@ -73,10 +71,12 @@ def _preprocess_example(conversation_dic):
     header = get_dataset_prompt(dataset_name, human_name, bot_name, background=conversation_dic['background'])
     head_ids, header_ids_len = _tokenize_string(header)
 
-    input_ids_tensor_list = [head_ids]
+    input_ids = copy.deepcopy(head_ids)
 
     for i in range(turn_n):
         cur_turn_qa = conversation_dic['qas'][f'turn_{i}']
+        if cur_turn_qa is None:
+            break
         cur_question_string = human_name + ": " + cur_turn_qa["question"] + DEFAULT_EOS_TOKEN
         cur_question_string_token_ids, cur_question_string_token_ids_len = _tokenize_string(cur_question_string)
         cur_answer_string = bot_name + ": " + cur_turn_qa["answer"] + DEFAULT_EOS_TOKEN
@@ -86,20 +86,21 @@ def _preprocess_example(conversation_dic):
             break
 
         # question
-        input_ids_tensor_list.append(default_segment_token_ids)
-        input_ids_tensor_list.append(cur_question_string_token_ids)
+        input_ids.extend(default_segment_token_ids)
+        input_ids.extend(cur_question_string_token_ids)
         header_ids_len += default_segment_token_ids_len + cur_question_string_token_ids_len
 
         # answer
-        input_ids_tensor_list.append(default_segment_token_ids)
-        input_ids_tensor_list.append(cur_answer_string_token_ids)
+        input_ids.extend(default_segment_token_ids)
+        input_ids.extend(cur_answer_string_token_ids)
         header_ids_len += default_segment_token_ids_len + cur_answer_string_token_ids_len
 
-    input_ids = torch.cat(input_ids_tensor_list, dim=0)
     label_ids = copy.deepcopy(input_ids)
-    label_ids[:len(head_ids)] = IGNORE_INDEX
+    for i in range(len(head_ids)):
+        label_ids[i] = IGNORE_INDEX
+    attention_mask = [1 for _ in range(len(label_ids))]
 
-    return input_ids, label_ids
+    return {'input_ids': input_ids, 'labels': label_ids, 'attention_mask': attention_mask}
 
 
 data_path = "/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/multitrun_conversation/debug_multi_dataset_qas.json"
