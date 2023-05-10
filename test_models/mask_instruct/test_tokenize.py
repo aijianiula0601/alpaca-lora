@@ -1,8 +1,15 @@
+import os
+import sys
 import json
 
 from datasets import load_dataset
 
 from transformers import LlamaForCausalLM, LlamaTokenizer
+
+pdj = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+print(f"pdj:{pdj}")
+sys.path.append(pdj)
+
 
 from utils.prompter import Prompter
 
