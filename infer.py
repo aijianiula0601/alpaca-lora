@@ -1,14 +1,14 @@
 import os
 import sys
 
-import gradio as gr
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+
 import torch
 import transformers
 from peft import PeftModel
 from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer
 
 from utils.callbacks import Iteratorize, Stream
-from utils.prompter import Prompter
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -22,20 +22,10 @@ except:  # noqa: E722
     pass
 
 
-def load_model(
-        load_8bit: bool = False,
-        base_model: str = "",
-        lora_weights: str = "tloen/alpaca-lora-7b",
-        prompt_template: str = "",  # The prompt template to use, will default to alpaca.
-        server_name: str = "0.0.0.0",  # Allows to listen on all interfaces by providing '0.
-        share_gradio: bool = False,
-):
+def load_model(load_8bit: bool = False, base_model: str = "", lora_weights: str = "tloen/alpaca-lora-7b"):
     base_model = base_model or os.environ.get("BASE_MODEL", "")
-    assert (
-        base_model
-    ), "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
+    assert base_model, "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
 
-    prompter = Prompter(prompt_template)
     tokenizer = LlamaTokenizer.from_pretrained(base_model)
     if device == "cuda":
         model = LlamaForCausalLM.from_pretrained(
@@ -83,7 +73,7 @@ def load_model(
     if torch.__version__ >= "2" and sys.platform != "win32":
         model = torch.compile(model)
 
-    return model, tokenizer, prompter
+    return model, tokenizer
 
 
 def evaluate(
@@ -156,14 +146,14 @@ def evaluate(
                 break
 
     assert decoded_output is not None, 'Error: decoded_output is None!'
-    return decoded_output[prompt_len:].strip()
+    return decoded_output[prompt_len+1:].strip()
 
 
 if __name__ == "__main__":
     input_prompt = "Background:Audrey is a 26-year-old entrepreneur who knows firsthand the challenges that come with dating in today's world. As someone who has experienced the ups and downs of relationships, Audrey wants to remind everyone that they are worthy of love and respect, no matter what they're looking for. She wishes everyone the best of luck in their search for companionship, be it sex, love, or friendship.When Audrey isn't busy with her entrepreneurial ventures, she enjoys traveling, hiking, and practicing yoga. In fact, she's planning to spend the next few weeks exploring India and the Himalayas, specifically Leh, Jammu & Kashmir, Manali, Dharam Rishikesh, and other areas. Audrey is always open to travel tips and recommendations, so if you have any, be sure to let her know! When it comes to her lifestyle, she wants a pet, but only on special occasions. She is a non-smoker who exercises every day and follows a vegetarian diet.Aside from her love of travel and adventure, Audrey is passionate about art, entrepreneurship, meditation, singing, and personal growth. She is always seeking new ways to learn and improve herself, both professionally and personally. Now you reply as Audrey. The following is a conversation with Audrey. Audrey should speak in a tone consistent with the identity introduced in the background. Give the state of the action and expressions appropriately###Emily: Hi Audrey!###Audrey: Hi Emily!###Emily: where are you?###Audrey: "
     lora_model = 'tloen/alpaca-lora-7b'
     base_model = 'decapoda-research/llama-7b-hf'
-    model, tokenizer, prompter = load_model(load_8bit=True, base_model=base_model, lora_weights=lora_model)
+    model, tokenizer = load_model(load_8bit=True, base_model=base_model, lora_weights=lora_model)
     print("load model done!")
     rs = evaluate(input_prompt, model, tokenizer, stream_output=True, stop_words_list=["###", "Audrey:"])
 

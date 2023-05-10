@@ -2,6 +2,21 @@ import logging
 import orjson
 import requests
 from flask import Flask, request, Response
+import os
+import sys
+
+pdj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+print(f"pdj:{pdj}")
+sys.path.append(pdj)
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+
+import torch
+import transformers
+from peft import PeftModel
+from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer
+
+from utils.callbacks import Iteratorize, Stream
 
 app = Flask(__name__)
 
@@ -9,140 +24,165 @@ app.logger.disabled = True
 logging.getLogger("werkzeug").disabled = True
 logging.getLogger().setLevel(logging.WARNING)
 
-import os
-import sys
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-import torch
-
-pdj = "/mnt/cephfs/zhuchengqi/git/LLM/bigo_stanford_alpaca/eval/transformers_jh/src"
-sys.path.append(pdj)
-import transformers
-
 model = None
 tokenizer = None
 generator = None
 
 logger = logging.getLogger()
 
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
-def load_model(model_name, eight_bit=0, device_map="auto"):
-    global model, tokenizer, generator
-
-    print("Loading " + model_name + "...")
-    # config
-    gpu_count = torch.cuda.device_count()
-    print('gpu_count', gpu_count)
-
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, use_fast=False)
-    model = transformers.AutoModelForCausalLM.from_pretrained(
-        model_name,
-        # device_map=device_map,
-        # device_map="auto",
-        torch_dtype=torch.float16,
-        # max_memory = {0: "14GB", 1: "14GB", 2: "14GB", 3: "14GB",4: "14GB",5: "14GB",6: "14GB",7: "14GB"},
-        # load_in_8bit=eight_bit,
-        low_cpu_mem_usage=True,
-        load_in_8bit=False,
-        cache_dir="cache"
-    ).cuda()
+try:
+    if torch.backends.mps.is_available():
+        device = "mps"
+except:  # noqa: E722
+    pass
 
 
-@torch.inference_mode()
-def generate_stream(model, tokenizer, params, context_len=2048, stream_interval=2, device="cuda"):
-    prompt = params["prompt"]
-    prompt_len = len(prompt)
-    temperature = float(params.get("temperature", 1.0))
-    max_new_tokens = int(params.get("max_new_tokens", 256))
-    stop_words_list = params.get("stop_words_list", [])
-    stop_words_list.append("\n")
-    stop_words_list.append("</s>")
+def load_model(load_8bit: bool = False, base_model: str = "", lora_weights: str = "tloen/alpaca-lora-7b"):
+    base_model = base_model or os.environ.get("BASE_MODEL", "")
+    assert base_model, "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
 
-    input_ids = tokenizer(prompt).input_ids
-    output_ids = list(input_ids)
+    tokenizer = LlamaTokenizer.from_pretrained(base_model)
+    if device == "cuda":
+        model = LlamaForCausalLM.from_pretrained(
+            base_model,
+            load_in_8bit=load_8bit,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
+        model = PeftModel.from_pretrained(
+            model,
+            lora_weights,
+            torch_dtype=torch.float16,
+        )
+    elif device == "mps":
+        model = LlamaForCausalLM.from_pretrained(
+            base_model,
+            device_map={"": device},
+            torch_dtype=torch.float16,
+        )
+        model = PeftModel.from_pretrained(
+            model,
+            lora_weights,
+            device_map={"": device},
+            torch_dtype=torch.float16,
+        )
+    else:
+        model = LlamaForCausalLM.from_pretrained(
+            base_model, device_map={"": device}, low_cpu_mem_usage=True
+        )
+        model = PeftModel.from_pretrained(
+            model,
+            lora_weights,
+            device_map={"": device},
+        )
 
-    max_src_len = context_len - max_new_tokens - 8
-    input_ids = input_ids[-max_src_len:]
+    # unwind broken decapoda-research config
+    model.config.pad_token_id = tokenizer.pad_token_id = 0  # unk
+    model.config.bos_token_id = 1
+    model.config.eos_token_id = 2
 
-    for i in range(max_new_tokens):
-        if i == 0:
-            out = model(
-                torch.as_tensor([input_ids], device=device), use_cache=True)
-            logits = out.logits
-            past_key_values = out.past_key_values
-        else:
-            attention_mask = torch.ones(
-                1, past_key_values[0][0].shape[-2] + 1, device=device)
-            out = model(input_ids=torch.as_tensor([[token]], device=device),
-                        use_cache=True,
-                        attention_mask=attention_mask,
-                        past_key_values=past_key_values)
-            logits = out.logits
-            past_key_values = out.past_key_values
+    if not load_8bit:
+        model.half()  # seems to fix bugs for some users.
 
-        last_token_logits = logits[0][-1]
+    model.eval()
+    if torch.__version__ >= "2" and sys.platform != "win32":
+        model = torch.compile(model)
 
-        if temperature < 1e-4:
-            token = int(torch.argmax(last_token_logits))
-        else:
-            probs = torch.softmax(last_token_logits / temperature, dim=-1)
-            token = int(torch.multinomial(probs, num_samples=1))
+    return model, tokenizer
 
-        output_ids.append(token)
 
-        if token == tokenizer.eos_token_id:
-            stopped = True
-        else:
+def generate_stream(
+        input_prompt,
+        model,
+        tokenizer,
+        temperature=0.1,
+        top_p=0.75,
+        top_k=40,
+        num_beams=4,
+        max_new_tokens=128,
+        stop_words_list=["###"],
+        **kwargs,
+):
+    prompt_len = len(input_prompt)
+    inputs = tokenizer(input_prompt, return_tensors="pt")
+    input_ids = inputs["input_ids"].to(device)
+    generation_config = GenerationConfig(
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        num_beams=num_beams,
+        **kwargs,
+    )
+
+    generate_params = {
+        "input_ids": input_ids,
+        "generation_config": generation_config,
+        "return_dict_in_generate": True,
+        "output_scores": True,
+        "max_new_tokens": max_new_tokens,
+    }
+
+    # Stream the reply 1 token at a time.
+    # This is based on the trick of using 'stopping_criteria' to create an iterator,
+    # from https://github.com/oobabooga/text-generation-webui/blob/ad37f396fc8bcbab90e11ecf17c56c97bfbd4a9c/modules/text_generation.py#L216-L243.
+
+    def generate_with_callback(callback=None, **kwargs):
+        kwargs.setdefault(
+            "stopping_criteria", transformers.StoppingCriteriaList()
+        )
+        kwargs["stopping_criteria"].append(
+            Stream(callback_func=callback)
+        )
+        with torch.no_grad():
+            model.generate(**kwargs)
+
+    def generate_with_streaming(**kwargs):
+        return Iteratorize(
+            generate_with_callback, kwargs, callback=None
+        )
+
+    decoded_output = None
+    with generate_with_streaming(**generate_params) as generator:
+        for output in generator:
+            # new_tokens = len(output) - len(input_ids[0])
+            decoded_output = tokenizer.decode(output)
+
+            if output[-1] in [tokenizer.eos_token_id]:
+                break
+
             stopped = False
-
-        if i % stream_interval == 0 or i == max_new_tokens - 1 or stopped:
-            output = tokenizer.decode(output_ids, skip_special_tokens=True)
             for stop_str in stop_words_list:
-                pos = output.lower().rfind(stop_str.lower(), prompt_len)
+                pos = decoded_output.lower().rfind(stop_str.lower(), prompt_len)
                 if pos != -1:
-                    output = output[:pos]
+                    decoded_output = decoded_output[:pos]
                     stopped = True
                     break
-            yield output
+            if stopped:
+                break
 
-        if stopped:
-            break
-
-    del past_key_values
-    return output
+    assert decoded_output is not None, 'Error: decoded_output is None!'
+    return decoded_output[prompt_len + 1:].strip()
 
 
 print("loading model ... ")
-# model_dir = '/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/multitrun_conversation/ft_outs/checkpoint-1000'
-# model_dir = '/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/multi_turns_conversation_nomask/ft_out_nomask/checkpoint-1600'
-# model_dir='/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/multitrun_conversation/ft_outs_mask_instruct/checkpoint-1400'
-# model_dir = "/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/tmp/finetune_out_gpt4_share_sex_soda_cot_multi/checkpoint-4000/"
-# model_dir = "/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/multitrun_conversation/ft_outs_mask_instruct/checkpoint-1400"
-# model_dir="/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/multitrun_conversation/ft_outs_mask_instruct/checkpoint-1500"
-model_dir = "/mnt/cephfs/hjh/train_record/nlp/stanford_alpaca/multitrun_conversation/ft_outs_mask_instruct/checkpoint-1200"
-load_model(model_dir)
+lora_model = 'tloen/alpaca-lora-7b'
+base_model = 'decapoda-research/llama-7b-hf'
+model, tokenizer = load_model(load_8bit=True, base_model=base_model, lora_weights=lora_model)
 print('load model done!!!')
 print('-' * 100)
 
 
 def bot(prompt_input, temperature=0.7, max_gen_len=256, stop_words_list=None):
     assert stop_words_list is not None, "stop text is None!!!"
-    params = {
-        "prompt": prompt_input,
-        "temperature": temperature,
-        "max_new_tokens": max_gen_len,
-        "stop_words_list": stop_words_list,
-    }
     print(prompt_input)
     print("-" * 200)
-
-    skip_echo_len = len(prompt_input.replace("</s>", " ")) + 1
-    stream = generate_stream(model, tokenizer, params)
-    generated_text = None
-    for outputs in stream:
-        generated_text = outputs[skip_echo_len:].strip()
-        generated_text = generated_text.split(" ")
-    generated_text = " ".join(generated_text)
+    generated_text = generate_stream(prompt_input, model, tokenizer, temperature=temperature,
+                                     max_new_tokens=max_gen_len, stop_words_list=stop_words_list)
     print("-" * 50 + "model generate text" + '-' * 50)
     print(generated_text)
     print("-" * 200)
@@ -167,9 +207,8 @@ def receive():
         res = {"status": 400, "error_msg": "Invalid json request.", "server_info": "", }
         return Response(orjson.dumps(res), mimetype="application/json;charset=UTF-8", status=200)
 
-    # print('[http/receive]requests:', params)
     prompt_input = params.get('prompt_input', "")
-    temperature = params.get('temperature', 0)
+    temperature = params.get('temperature', 0.7)
     max_gen_len = params.get('max_gen_len', "")
     stop_words_list = params.get('stop_words_list', [])
 
@@ -180,4 +219,4 @@ def receive():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)
