@@ -169,9 +169,15 @@ def generate_stream(
     return decoded_output[prompt_len + 1:].strip()
 
 
+# ----------------------------------------------------------------------------------------
+# 加载模型
+# ----------------------------------------------------------------------------------------
 print("loading model ... ")
-lora_model = 'tloen/alpaca-lora-7b'
 base_model = 'decapoda-research/llama-7b-hf'
+# 加载网上模型
+# lora_model = 'tloen/alpaca-lora-7b'
+# 加载自己的模型
+lora_model = "/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/llama-7b-hf_alpaca_cleand_and_gpt4_fine_out"
 model, tokenizer = load_model(load_8bit=True, base_model=base_model, lora_weights=lora_model)
 print('load model done!!!')
 print('-' * 100)

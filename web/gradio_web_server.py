@@ -53,7 +53,7 @@ def role_ab_chat(selected_temp, user_message, history, background_a, background_
     # role_b回答
     # -------------------
     history = history + [[f"{role_a_name}: " + user_message, None]]
-    if role_b_model_name == models_list[2]:
+    if role_b_model_name == models_list[0]:
         role_b_input_api_data = get_input_api_data(background=background_b,
                                                    history=get_history(role_a_name, role_b_name, history))
         print("=" * 100)
@@ -78,7 +78,7 @@ def role_ab_chat(selected_temp, user_message, history, background_a, background_
     # -------------------
     # role_a回答
     # -------------------
-    if role_a_model_name == models_list[2]:
+    if role_a_model_name == models_list[0]:
         role_a_input_api_data = get_input_api_data(background=background_a,
                                                    history=get_history(role_a_name, role_b_name, history)[1:])
         role_a_question = alpaca_lora_respond(role_a_input_api_data,
