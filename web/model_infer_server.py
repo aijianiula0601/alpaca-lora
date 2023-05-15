@@ -178,6 +178,8 @@ base_model = 'decapoda-research/llama-7b-hf'
 # lora_model = 'tloen/alpaca-lora-7b'
 # 加载自己的模型
 lora_model = "/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/llama-7b-hf_alpaca_cleand_and_gpt4_fine_out"
+# lora_model = "/mnt/cephfs/hjh/train_record/nlp/lora_stanford_alpaca/conversation_mask_instruct/ft_out"  # 无法输出任何数据
+print(f"lora_model:{lora_model}")
 model, tokenizer = load_model(load_8bit=True, base_model=base_model, lora_weights=lora_model)
 print('load model done!!!')
 print('-' * 100)
@@ -225,4 +227,4 @@ def receive():
 
 
 if __name__ == '__main__':
-    app.run(debug=False, port=5000)
+    app.run(debug=False, port=6001)

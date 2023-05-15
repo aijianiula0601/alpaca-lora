@@ -33,7 +33,7 @@ PROMPT_DICT = {
     ),
     "conversion_v4": (
         "Background:{background} "
-        "The following is a conversation with {role_b}. {role_b} should speak in a tone consistent with the identity introduced in the background. Give the state of the action and expressions appropriately"
+        "The following is a conversation with {role_b}. {role_b} should speak in a tone consistent with the identity introduced in the background. Give the state of the action and expressions appropriately."
         "{history}"
     )
 }
@@ -61,7 +61,7 @@ def alpaca_lora_respond(message_list, role_dict, temperature=0.6):
         "max_gen_len": 256,
         "stop_words_list": [DEFAULT_SEGMENT_TOKEN.strip(), role_dict['user'] + ":"]
     })
-    response = requests.post("http://0.0.0.0:5000/api", data=request_data)
+    response = requests.post("http://0.0.0.0:6001/api", data=request_data)
 
     json_data = json.loads(response.text)
     text_respond = json_data["result"]
